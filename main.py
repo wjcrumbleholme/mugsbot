@@ -7,11 +7,6 @@
 
 
 #TODO
-#Make more commands to toggle voting
-#Make alltime leaderboard
-#Everytime the current leaderboard is drawn, add it and the overall leaderboard to a file with the date on.
-
-
 
 
 import discord
@@ -45,6 +40,11 @@ vote_tracker = {} #Tracks what image a user has voted on
 curr_leaderboard = "" #Stores the last leaderboard.
 overall_leaderboard = {} #Stores overall score for all users
 
+toggles = {"sign_up": False,
+           "sub_mug": False,
+           "voting": False
+           }
+
 
 bot = commands.Bot(command_prefix= '-', intents=discord.Intents.all())
 
@@ -71,10 +71,10 @@ async def on_ready():
     bot.add_view(MugView())
     bot.add_view(SignUpView())
 
-    scheduler = AsyncIOScheduler()
-    scheduler.configure(timezone='gmt')
-    scheduler.add_job(test,CronTrigger(minute='0'))
-    scheduler.start()
+    # scheduler = AsyncIOScheduler()
+    # scheduler.configure(timezone='gmt')
+    # scheduler.add_job(test,CronTrigger(minute='0'))
+    # scheduler.start()
     
 
 #-------------------------------------#
@@ -103,14 +103,69 @@ async def load_all_files(directory):
                 await load_file(filename)
 
 #-----Useful relevant commands-----#
-@bot.tree.command(name="send_sign_up", description="(Admin) Sends the sign up message")
+
+@bot.tree.command(name="toggle_sign_up", description="(Admin) Toggles sign up")
 async def sign_up_command(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("You do not have permission to do that", ephemeral=True)
     else:
-        await sign_up()
-        await interaction.response.send_message("Sent sign up message.",ephemeral=True)
+        if toggles.get("sign_up") == False:
+            toggles["sign_up"] = True
+            c = bot.get_channel(SIGNUP_CHANNEL_ID)
+            msg = await c.send("Click the button to sign up for this week's mug of the week.",view=SignUpView())
+            toggles["sign_up_msg_id"] = msg.id
+            await store_file(toggles,f'{toggles=}'.split('=')[0])
+            await interaction.response.send_message("Sent sign up message.",ephemeral=True)
+        else:
+            toggles["sign_up"] = False
+            await bot.get_channel(SIGNUP_CHANNEL_ID).get_partial_message(toggles.get("sign_up_msg_id")).delete()
+            await store_file(toggles,f'{toggles=}'.split('=')[0])
+            await interaction.response.send_message("Unsent sign up message.", ephemeral=True)
 
+@bot.tree.command(name="toggle_mug_submission",description="(Admin) Toggles if mugs can be submitted")
+async def mug_sub_command(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("You do not have permission to do that", ephemeral=True)
+    else:
+        if toggles.get("sub_mug") == False:
+            toggles["sub_mug"] = True
+            await store_file(toggles,f'{toggles=}'.split('=')[0])
+            await interaction.response.send_message("Enabled mugs to be able to be sent", ephemeral=True)
+        else:
+            toggles["sub_mug"] = False
+            await store_file(toggles,f'{toggles=}'.split('=')[0])
+            await interaction.response.send_message("Disabled mugs to be able to be sent", ephemeral=True)
+        
+
+@bot.tree.command(name="toggle_voting",description="(Admin) Toggles votes on mugs")
+async def mug_vote_command(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("You do not have permission to do that", ephemeral=True)
+    else:
+        if toggles.get("voting") == False:
+            toggles["voting"] = True
+            await interaction.response.send_message("Enabled mugs to be able to be voted on", ephemeral=True)
+            for key in prev_img_dict:
+                await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(int(key)).edit(view=MugView())
+            await store_file(toggles,f'{toggles=}'.split('=')[0])
+        else:
+            toggles["voting"] = False
+            await interaction.response.send_message("Disabled mugs to be able to be voted on", ephemeral=True)
+            for key in prev_img_dict:
+                await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(int(key)).edit(view=None)
+            await store_file(toggles,f'{toggles=}'.split('=')[0])
+
+@bot.tree.command(name="clear_all",description="(Admin) Clears all backups DONT RUN UNLESS NESSISARY")
+async def mug_sub_command(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("You do not have permission to do that", ephemeral=True)
+    else:
+        files_to_delete = ["users_signed_up", "final_rand_users_signed_up", "prev_img_sub_usr_list", "prev_img_dict", "usr_votes","old_top_scores","vote_tracker"]
+        for filename in os.listdir("./backups"):
+            if filename[7:-5] in files_to_delete:
+                os.remove(f"./backups/{filename}")
+        await interaction.response.send_message("Successfullu cleared backups", ephemeral=True)
+        
 
 
 #-----Sign up stuff------#
@@ -145,11 +200,6 @@ async def on_sign_up_cancel(interaction):
     else:
         await interaction.response.send_message("You haven't signed up so can't be removed.",ephemeral=True)
 
-# send the sign up message 
-async def sign_up():
-    await bot.wait_until_ready()
-    c = bot.get_channel(SIGNUP_CHANNEL_ID)
-    msg = await c.send("Click the button to sign up for this week's mug of the week.",view=SignUpView())
 
 #--------------------------------------#
 
@@ -204,19 +254,22 @@ async def send_rand_dm(interaction: discord.Interaction):
 @bot.tree.command(name="submit_mug", description="Use this command to submit mugs")
 async def sub_photos(interaction: discord.Interaction, file: discord.Attachment):
     
-    if (interaction.user.id in users_signed_up):
-        if interaction.user.id not in prev_img_sub_usr_list:
-            await interaction.response.send_message("Mug successfully submitted",ephemeral=True)
-            c = bot.get_channel(MUG_SUBMISSIONS_ID)
-            msg = await c.send(file, view=MugView())
-            prev_img_sub_usr_list.append(interaction.user.id)
-            await store_file(prev_img_sub_usr_list,f'{prev_img_sub_usr_list=}'.split('=')[0])
-            prev_img_dict.update({str(msg.id): interaction.user.id})
-            await store_file(prev_img_dict,f'{prev_img_dict=}'.split('=')[0])
+    if toggles.get("sub_mug") == True:
+        if (interaction.user.id in users_signed_up):
+            if interaction.user.id not in prev_img_sub_usr_list:
+                await interaction.response.send_message("Mug successfully submitted",ephemeral=True)
+                c = bot.get_channel(MUG_SUBMISSIONS_ID)
+                msg = await c.send(file, view=MugView())
+                prev_img_sub_usr_list.append(interaction.user.id)
+                await store_file(prev_img_sub_usr_list,f'{prev_img_sub_usr_list=}'.split('=')[0])
+                prev_img_dict.update({str(msg.id): interaction.user.id})
+                await store_file(prev_img_dict,f'{prev_img_dict=}'.split('=')[0])
+            else:
+                await interaction.response.send_message("You have already submitted your mug for this week.",ephemeral=True)
         else:
-            await interaction.response.send_message("You have already submitted your mug for this week.",ephemeral=True)
+            await interaction.response.send_message("You did not sign up this week, so you cant submit a mug.",ephemeral=True)
     else:
-        await interaction.response.send_message("You did not sign up this week, so you cant submit a mug.",ephemeral=True)
+        await interaction.response.send_message("Mugs are not able to be sent at this time.", ephemeral=True)
     
 
 class MugView(View):
@@ -242,7 +295,6 @@ async def on_vote(interaction):
         await store_file(vote_tracker,f'{vote_tracker=}'.split('=')[0])
 
     img_voters = vote_tracker.get(str(msg))
-    await store_file(img_voters,f'{img_voters=}'.split('=')[0])
     if(prev_img_dict.get(str(msg)) == user): #Check if the mug belogns to the person who submitted it
         await interaction.response.send_message("You cannot vote on your own mug!", ephemeral=True)
     elif (user in img_voters): #Check if user has already voted on the mug
@@ -267,7 +319,7 @@ async def on_vote(interaction):
         usr_votes[str(user)] = num
         await store_file(usr_votes,f'{usr_votes=}'.split('=')[0])
         await interaction.response.send_message(f"You have {usr_votes[str(user)]} vote(s) remaining.", ephemeral=True)
-
+    
 
 async def on_vote_removal(interaction):
     user = interaction.user.id
@@ -315,7 +367,7 @@ async def ann_winn(interaction: discord.Interaction):
         #group all the same values together, so that ties work
         top_scores = await Sort(old_top_scores)
         top_scores.reverse()
-        for i in range(0, len(top_scores) -1):
+        for i in range(0, len(top_scores) -2):
             if top_scores[i+1][1] == top_scores[i][1]:
                 top_scores[i] = top_scores[i] + top_scores[i+1]
                 top_scores.pop(i+1)
@@ -381,10 +433,10 @@ async def calcplace(list1, points):
             # curruser = await bot.fetch_user(list1[(i*2)-2])
             guild = await bot.fetch_guild(SERVER_ID)
             dmuser = await guild.fetch_member(final_rand_users_signed_up[users_signed_up.index(list1[(i*2)-2])])
-            chunk = "<@"+str(list1[(i*2)-2]) +"> - "+ str(list1[(i*2)-1]) +" vote(s)        [+"+points+" Point(s)]   |    " "[" +dmuser.nick+" +1 Pp]" 
+            chunk = f"<@{list1[(i*2)-2]}> - {list1[(i*2)-1]} vote(s)       [+{points} Point(s)]     |   [{dmuser.nick} +1 Pp]"
             await add_overall_leader(list1[(i*2)-2], points)
             await add_overall_leader(dmuser.id, 1)
-            if i == int(len(list1)/2):
+            if i == int(len(list1))/2:
                 second = second + chunk
             else:
                 second = second + chunk + " and "
