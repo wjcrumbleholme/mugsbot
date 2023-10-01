@@ -1,0 +1,252 @@
+# Send message in a channel and let users react for each week to sign up for 6hrs on sunday night, draw names on monday morning
+# Randomise the users and send everyone a message in a dm (not their own)
+# Let everyone who has signed up submit 1 photo into #mug of the week submissions / delete anyone who is not signed up or put more than one message in the channel, allow this through the weekend
+# Monday mornings, close submissions and open voting (everyone has 3 votes) untill the end of the day
+# On tuseday morning, announce winners and update the leaderboard
+
+import discord
+import asyncio
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from discord.ext import commands
+from discord import app_commands
+from apikeys import *
+
+SERVER_ID = 1157045575250878567
+CHANNEL_ID = 1157045577545167002
+SIGNUP_CHANNEL_ID = 1157261080503001118
+MUG_SUBMISSIONS_ID = 1157292030137999460
+
+
+
+sign_up_message_id = 0
+users_signed_up = []
+prev_img_sub_usr_list = []
+prev_img_dict = {}
+usr_votes = {}
+old_top_scores = []
+
+
+bot = commands.Bot(command_prefix= '-', intents=discord.Intents.all())
+
+@bot.event
+async def on_ready():
+    print("Bot is ready.")
+    print("---------------")
+
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} command(s)")
+    except Exception as e:
+        print(e)
+
+    scheduler = AsyncIOScheduler()
+    scheduler.configure(timezone='gmt')
+    scheduler.add_job(test,CronTrigger(minute='0'))
+    scheduler.start()
+    #await sign_up()
+
+
+async def Sort(sub_li):
+   
+    l = len(sub_li)
+     
+    for i in range(0, l):
+        for j in range(0, l-i-1):
+             
+            if (sub_li[j][1] > sub_li[j + 1][1]):
+                tempo = sub_li[j]
+                sub_li[j] = sub_li[j + 1]
+                sub_li[j + 1] = tempo
+     
+    return sub_li
+
+# ____COMMANDS____
+
+#allows the user to do /sub_photos to submit one photo per week
+@bot.tree.command(name="submit_mug", description="Use this command to submit mugs")
+async def sub_photos(interaction: discord.Interaction, file: discord.Attachment):
+    
+    if interaction.user.id not in prev_img_sub_usr_list:
+        await interaction.response.send_message("Mug successfully submitted",ephemeral=True)
+        c = bot.get_channel(MUG_SUBMISSIONS_ID)
+        msg = await c.send(file)
+        await msg.add_reaction("⬆️")
+        prev_img_sub_usr_list.append(interaction.user.id)
+        prev_img_dict.update({msg.id: interaction.user.id})
+        print(prev_img_dict)
+    else:
+        await interaction.response.send_message("You have already submitted your mug for this week",ephemeral=True)
+    
+
+#command for totaling the leaderboard
+@bot.tree.command(name="draw_winners", description="This command totals up the scores for the submitted mugs of the week (Admin only)")
+async def ann_winn(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("You do not have permission to do that")
+    else:
+        for key in prev_img_dict:
+            msg = await bot.get_channel(MUG_SUBMISSIONS_ID).fetch_message(key)
+            score = msg.reactions[0].count - 1
+            #add all scores to a list
+            old_top_scores.append([prev_img_dict[key], score])
+            
+        
+        #group all the same values together, so that ties work
+        top_scores = await Sort(old_top_scores)
+        top_scores.reverse()
+        for i in range(0, len(top_scores) -1):
+            if top_scores[i+1][1] == top_scores[i][1]:
+                top_scores[i] = top_scores[i] + top_scores[i+1]
+                top_scores.pop(i+1)
+        print(f"List - {top_scores}")
+
+        #Try and get first, second and third place
+        try:
+            first = await calcplace(top_scores[0])
+        except:
+            first = "No one"
+        try:
+            second = await calcplace(top_scores[1])
+        except:
+            second = "No one"
+        try:
+            third = await calcplace(top_scores[2])
+        except:
+            third = "No one"
+
+        await interaction.response.send_message(f"Drawn winners",ephemeral=True)
+        c = bot.get_channel(MUG_SUBMISSIONS_ID)
+        await c.send(f"First: {first}\nSecond: {second}\nThird: {third}")
+
+#Split ties back up so they can be output
+async def calcplace(list1):
+    second = ""
+    if len(list1) == 2:
+        second = f"<@{list1[0]}> - {list1[1]} votes"
+    else:
+        for i in range(1, int(len(list1)/2)+1):
+            # curruser = await bot.fetch_user(list1[(i*2)-2])
+            chunk = "<@"+str(list1[(i*2)-2]) +"> - "+ str(list1[(i*2)-1]) +" vote(s)" 
+            if i == int(len(list1)/2):
+                second = second + chunk
+            else:
+                second = second + chunk + " and "
+    return second
+
+
+@bot.tree.command(name="hello")
+async def first_command(interaction: discord.Interaction):
+    await interaction.response.send_message("Hello!",ephemeral=True)
+
+@bot.tree.command(name="say")
+@app_commands.describe(thing_to_say = "What should I say?")
+async def say(interaction: discord.Interaction, thing_to_say: str):
+    await interaction.response.send_message(f"{interaction.user.name} said: `{thing_to_say}`")
+
+@bot.command()
+async def purge(ctx, amt):
+    await ctx.channel.purge(limit = int(amt) + 1)
+    msg = await ctx.send(f"Purged {amt} messages.")
+    await asyncio.sleep(3)
+    await msg.delete()
+
+
+async def test():
+    await bot.wait_until_ready()
+    c = bot.get_channel(CHANNEL_ID)
+    await c.send('test')
+
+
+# send the sign up message 
+async def sign_up():
+    await bot.wait_until_ready()
+    c = bot.get_channel(SIGNUP_CHANNEL_ID)
+    msg = await c.send('React to sign up')
+    await msg.add_reaction("👋")
+    global sign_up_message_id
+    sign_up_message_id = msg.id
+
+
+
+# listen for any reactions added to messages
+@bot.event
+async def on_raw_reaction_add(payload):
+    message = await bot.get_channel(payload.channel_id).fetch_message(payload.message_id)
+    reaction = discord.utils.get(message.reactions)
+    user=payload.member
+
+    print(f"Message {message.content} was reacted with {reaction} by {user}")
+
+    if (message.id == sign_up_message_id and user.id != bot.user.id):
+        print(f"User: {user} has agreed to sign up.  (Message id: {message.id}, Sign up message id: {sign_up_message_id})")
+
+        global users_signed_up
+        users_signed_up.append(user.id)
+        print(users_signed_up)
+        # await send_rand_dm()
+
+    #check if the reation is in the mug submission channel
+    if (payload.channel_id == MUG_SUBMISSIONS_ID and user.id != bot.user.id):
+        #check if the user is voting on their own image and remove the reaction if they are
+        if (prev_img_dict[message.id] == user.id and user.id != bot.user.id):
+            await message.remove_reaction("⬆️", user)
+            await user.send(f"You cannot vote on your own mug") 
+        else:
+            #check if the user has voted before, if not create a dictionary value
+            if (user.id not in usr_votes and user.id != bot.user.id):
+                usr_votes[user.id] = 2
+                await user.send(f"You have {usr_votes[user.id]} vote(s) remaining")
+            else:
+                #if the user has used all of their votes, delete the reaction
+                if (usr_votes.get(user.id) == 0 and user.id != bot.user.id):
+                   await message.remove_reaction("⬆️", user)
+                   await user.send(f"You cannot vote as you have 0 votes left") 
+                else:
+                    if(user.id != bot.user.id):
+                        num = usr_votes.get(user.id)
+                        num = num - 1
+                        usr_votes[user.id] = num
+                        await user.send(f"You have {usr_votes[user.id]} vote(s) remaining")
+                    else:
+                        pass
+    else:
+        pass
+
+
+
+# listen for any reactions removed from messages
+@bot.event
+async def on_raw_reaction_remove(payload):
+    message = await bot.get_channel(payload.channel_id).fetch_message(payload.message_id) 
+    reaction = discord.utils.get(message.reactions)
+    user = discord.utils.get(message.guild.members, id=payload.user_id)
+
+    print(f"Reaction {reaction} was removed from {message.content} by {user}")
+
+    if (message.id == sign_up_message_id and user.id != bot.user.id):
+        print(f"User: {user} has changed their mind.  (Message id: {message.id}, Sign up message id: {sign_up_message_id})")
+
+        global users_signed_up
+        users_signed_up.remove(user.id)
+        print(users_signed_up)
+
+    #check if the reation is in the mug submission channel, then add a vote to the users votes
+    if (payload.channel_id == MUG_SUBMISSIONS_ID and prev_img_dict[message.id] != user.id):
+        num = usr_votes.get(user.id)
+        num = num + 1
+        usr_votes[user.id] = num
+        await user.send(f"You have {usr_votes[user.id]} vote(s) remaining")
+    else:
+        pass
+
+
+# send a message to a user in a dm
+# async def send_rand_dm():
+#     global users_signed_up
+#     for i in range(0, len(users_signed_up)):
+#         user = await bot.fetch_user(users_signed_up[i])
+#         await user.send('test')
+
+
+bot.run(BOTTOKEN)

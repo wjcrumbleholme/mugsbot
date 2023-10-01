@@ -1,0 +1,114 @@
+# Send message in a channel and let users react for each week to sign up for 6hrs on sunday night, draw names on monday morning
+# Randomise the users and send everyone a message in a dm (not their own)
+# Let everyone who has signed up submit 1 photo into #mug of the week submissions / delete anyone who is not signed up or put more than one message in the channel, allow this through the weekend
+# Monday mornings, close submissions and open voting (everyone has 3 votes) untill the end of the day
+# On tuseday morning, announce winners and update the leaderboard
+
+import discord
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from discord.ext import commands
+
+from apikeys import *
+
+CHANNEL_ID = 1157045577545167002
+SIGNUP_CHANNEL_ID = 1157261080503001118
+MUG_SUBMISSIONS_ID = 1157292030137999460
+
+
+bot = commands.Bot(command_prefix= '-', intents=discord.Intents.all())
+
+
+sign_up_message_id = 0
+users_signed_up = []
+
+@bot.event
+async def on_ready():
+    print("Bot is ready.")
+    print("---------------")
+    scheduler = AsyncIOScheduler()
+    scheduler.configure(timezone='gmt')
+    scheduler.add_job(test,CronTrigger(minute='0'))
+    scheduler.start()
+    await sign_up()
+
+
+@bot.command()
+async def hello(ctx):
+    await ctx.send("Hello!")
+
+async def test():
+    await bot.wait_until_ready()
+    c = bot.get_channel(CHANNEL_ID)
+    await c.send('test')
+
+# send the sign up message 
+async def sign_up():
+    await bot.wait_until_ready()
+    c = bot.get_channel(SIGNUP_CHANNEL_ID)
+    msg = await c.send('React to sign up')
+    await msg.add_reaction("👋")
+    global sign_up_message_id
+    sign_up_message_id = msg.id
+
+# listen for any reactions added to messages
+@bot.event
+async def on_raw_reaction_add(payload):
+    message = await bot.get_channel(payload.channel_id).fetch_message(payload.message_id)
+    reaction = discord.utils.get(message.reactions, emoji="👋")
+    user=payload.member
+
+    print(f"Message {message.content} was reacted with {reaction} by {user}")
+
+    if (message.id == sign_up_message_id and user.id != bot.user.id):
+        print(f"User: {user} has agreed to sign up.  (Message id: {message.id}, Sign up message id: {sign_up_message_id})")
+
+        global users_signed_up
+        users_signed_up.append(user.id)
+        print(users_signed_up)
+        # await send_rand_dm()
+    
+# listen for any reactions removed from messages
+@bot.event
+async def on_raw_reaction_remove(payload):
+    message = await bot.get_channel(payload.channel_id).fetch_message(payload.message_id) 
+    reaction = discord.utils.get(message.reactions, emoji="👋")
+    user = discord.utils.get(message.guild.members, id=payload.user_id)
+
+    print(f"Reaction {reaction} was removed from {message.content} by {user}")
+
+    if (message.id == sign_up_message_id and user.id != bot.user.id):
+        print(f"User: {user} has changed their mind.  (Message id: {message.id}, Sign up message id: {sign_up_message_id})")
+
+        global users_signed_up
+        users_signed_up.remove(user.id)
+        print(users_signed_up)
+
+# send a message to a user in a dm
+# async def send_rand_dm():
+#     global users_signed_up
+#     for i in range(0, len(users_signed_up)):
+#         user = await bot.fetch_user(users_signed_up[i])
+#         await user.send('test')
+
+
+bot.run(BOTTOKEN)
+
+
+
+
+async def calcplace(list1):
+    second = ""
+    if len(list1) == 2:
+        second = f"{await bot.fetch_user(list1[0])} - {list1[1]} votes"
+    else:
+        for i in range(1, int(len(list1)/2)+1):
+            curruser = await bot.fetch_user(list1[(i*2)-2])
+            chunk = str(curruser) +" - "+ str(list1[(i*2)-1]) +" vote(s)" 
+            if i == int(len(list1)/2):
+                second = second + chunk
+            else:
+                second = second + chunk + " and "
+    return second
+
+^ non ping version
