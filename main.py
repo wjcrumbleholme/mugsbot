@@ -9,12 +9,9 @@
 #TODO
 #Make more commands to toggle voting
 #Make alltime leaderboard
-#Make current leaderboard display pitty points to mugtims
 #Everytime the current leaderboard is drawn, add it and the overall leaderboard to a file with the date on.
-#On startup load the current leaderboard, alltime leaderboard and all lists
-#Everytime a user signs up, write that user to a file of current sign-ups
-#Every 30mins, backup all lists to a file
-#Make it so when winners are drawn for the week, the bot reacts to the winning mugs and disables the buttons
+
+
 
 
 import discord
@@ -25,6 +22,7 @@ import asyncio
 import random
 import json
 import os
+import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apikeys import *
@@ -37,7 +35,6 @@ MUG_SUBMISSIONS_ID = 1157292030137999460
 
 
 
-
 users_signed_up = [] #Stores the signed up users
 final_rand_users_signed_up = [] #Stores the users that get sent out to signed up people
 prev_img_sub_usr_list = [] #Used to check if a user had already submitted a mug
@@ -45,6 +42,8 @@ prev_img_dict = {} #Used to keep track of wh posted what
 usr_votes = {} #Used to keep track of how many votes a user has
 old_top_scores = [] #Used to store all the scores in
 vote_tracker = {} #Tracks what image a user has voted on
+curr_leaderboard = "" #Stores the last leaderboard.
+overall_leaderboard = {} #Stores overall score for all users
 
 
 bot = commands.Bot(command_prefix= '-', intents=discord.Intents.all())
@@ -165,6 +164,7 @@ async def send_rand_dm(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("You do not have permission to do that", ephemeral=True)
     else:
+        await interaction.response.defer(ephemeral=True)
         final_rand_users_signed_up = []
         rand_users_signed_up = users_signed_up.copy()
         random.shuffle(rand_users_signed_up)
@@ -189,7 +189,7 @@ async def send_rand_dm(interaction: discord.Interaction):
 
             await dmuser.send(f"Hello {dmuser.nick}, for this mug of the week, you have got to get the best mug of {dmvict.nick} without them knowing.")
 
-        await interaction.response.send_message("Successfully sent dms.", ephemeral=True)
+        await interaction.followup.send("Successfully sent dms.", ephemeral=True)
 
              
         
@@ -296,6 +296,7 @@ async def ann_winn(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("You do not have permission to do that", ephemeral=True)
     else:
+        await interaction.response.defer(ephemeral=True)
         old_top_scores = []
         for key in prev_img_dict:
             votes = vote_tracker.get(key)
@@ -322,39 +323,67 @@ async def ann_winn(interaction: discord.Interaction):
 
         #Try and get first, second and third place
         try:
-            first = await calcplace(top_scores[0])
+            first = await calcplace(top_scores[0], 3)
             await calc_medal(top_scores[0], 0)
         except:
             first = "No one"
 
         try:
-            second = await calcplace(top_scores[1])
+            second = await calcplace(top_scores[1], 2)
             await calc_medal(top_scores[1], 1)
         except:
             second = "No one"
 
         try:
-            third = await calcplace(top_scores[2])
+            third = await calcplace(top_scores[2], 1)
             await calc_medal(top_scores[2], 2)
         except:
             third = "No one"
 
-        await interaction.response.send_message(f"Drawn winners",ephemeral=True)
+        # first = await calcplace(top_scores[0], 3)
+        # await calc_medal(top_scores[0], 0)
+
+
+        # second = await calcplace(top_scores[1], 2)
+        # await calc_medal(top_scores[1], 1)
+
+
+        # third = "No one"
+
+        await interaction.followup.send(f"Drawn winners",ephemeral=True)
         c = bot.get_channel(MUG_SUBMISSIONS_ID)
-        await c.send(f"First: {first}\nSecond: {second}\nThird: {third}")
+        curr_leaderboard = f"First: {first}\nSecond: {second}\nThird: {third}"
+        await c.send(curr_leaderboard)
+        await store_file(curr_leaderboard,f'{curr_leaderboard=}'.split('=')[0])
+
+        with open(f"./leaderboards/{datetime.date.today()}curr.json", "w") as f:
+            json.dump(curr_leaderboard, f, indent= 2)
+
+        with open(f"./leaderboards/{datetime.date.today()}overall.json", "w") as f:
+            json.dump(overall_leaderboard, f, indent= 2)
+
 
         for key in prev_img_dict:
             await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(key).edit(view=None)
 
 #Split ties back up so they can be output
-async def calcplace(list1):
+async def calcplace(list1, points):
     second = ""
-    if len(list1) == 2:
-        second = f"<@{list1[0]}> - {list1[1]} vote(s)"
+    if len(list1) == 2: #If only one user in position
+        guild = await bot.fetch_guild(SERVER_ID)
+        dmuser = await guild.fetch_member(final_rand_users_signed_up[users_signed_up.index(list1[0])])
+        second = f"<@{list1[0]}> - {list1[1]} vote(s)       [+{points} Point(s)]     |   [{dmuser.nick} +1 Pp]" 
+        await add_overall_leader(list1[0], points)
+        await add_overall_leader(dmuser.id, 1)
+        
     else:
-        for i in range(1, int(len(list1)/2)+1):
+        for i in range(1, int(len(list1)/2)+1): #If multiple users are in position
             # curruser = await bot.fetch_user(list1[(i*2)-2])
-            chunk = "<@"+str(list1[(i*2)-2]) +"> - "+ str(list1[(i*2)-1]) +" vote(s)" 
+            guild = await bot.fetch_guild(SERVER_ID)
+            dmuser = await guild.fetch_member(final_rand_users_signed_up[users_signed_up.index(list1[(i*2)-2])])
+            chunk = "<@"+str(list1[(i*2)-2]) +"> - "+ str(list1[(i*2)-1]) +" vote(s)        [+"+points+" Point(s)]   |    " "[" +dmuser.nick+" +1 Pp]" 
+            await add_overall_leader(list1[(i*2)-2], points)
+            await add_overall_leader(dmuser.id, 1)
             if i == int(len(list1)/2):
                 second = second + chunk
             else:
@@ -377,6 +406,17 @@ async def calc_medal(list2, place):
             if prev_img_dict.get(key) == list2[0]:
                 await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(key).add_reaction(medal)
 
+#Add points to the overall leaderboard
+async def add_overall_leader(user_id, points):
+    if str(user_id) in overall_leaderboard:
+        num = overall_leaderboard.get(str(user_id))
+        num = num + points
+        overall_leaderboard[str(user_id)] = num
+        await store_file(overall_leaderboard,f'{overall_leaderboard=}'.split('=')[0])
+    else:
+        overall_leaderboard[str(user_id)] = points
+        await store_file(overall_leaderboard,f'{overall_leaderboard=}'.split('=')[0])
+
 
 
 async def Sort(sub_li):
@@ -392,6 +432,56 @@ async def Sort(sub_li):
                 sub_li[j + 1] = tempo
      
     return sub_li
+
+
+@bot.tree.command(name="current_leaderboard", description="Use this command to look at the last leaderboard")
+async def send_curr_leader(interaction: discord.Interaction):
+    if curr_leaderboard == "":
+        await interaction.response.send_message("No previous leaderboard to show.", ephemeral=True)
+    else:
+        await interaction.response.send_message(curr_leaderboard, ephemeral=True)
+
+@bot.tree.command(name="top_leaderboard", description="Use this command to look at the top  leaderboard")
+async def send_top_leader(interaction: discord.Interaction):
+    if overall_leaderboard == {}:
+        await interaction.response.send_message("There is no overall leaderboard to show.", ephemeral=True)
+    else:
+        await interaction.response.defer(ephemeral=True)
+        tuple_sorted_leaderboard = sorted(overall_leaderboard.items(), key= lambda x:x[1], reverse=True)
+        sorted_leaderboard = [list(ele) for ele in tuple_sorted_leaderboard] #Convert the tuples in the list to lists
+
+        #Group people with the same score together
+        for i in range(0, len(sorted_leaderboard) -1):
+            if sorted_leaderboard[i+1][1] == sorted_leaderboard[i][1]:
+                sorted_leaderboard[i] = sorted_leaderboard[i] + sorted_leaderboard[i+1]
+                sorted_leaderboard.pop(i+1)
+        print(sorted_leaderboard)
+
+        position = 0
+        if str(interaction.user.id) in overall_leaderboard:
+            for place in sorted_leaderboard:
+                if str(interaction.user.id) in place:
+                    position = sorted_leaderboard.index(place) + 1
+        else: 
+            pass
+
+        await interaction.followup.send(f"First: {await calcoverplace(sorted_leaderboard[0])} \nSecond: {await calcoverplace(sorted_leaderboard[1])} \nThird: {await calcoverplace(sorted_leaderboard[2])}\n Your place is {position} with {overall_leaderboard.get(str(interaction.user.id))} point(s)", ephemeral=True)
+
+async def calcoverplace(list1):
+    second = ""
+    if len(list1) == 2: #If only one user in position
+        second = f"<@{list1[0]}> - {list1[1]} point(s)"        
+    else:
+        for i in range(1, int(len(list1)/2)+1): #If multiple users are in position
+            chunk = "<@"+str(list1[(i*2)-2]) +"> - "+ str(list1[(i*2)-1]) +" points(s)"
+
+            if i == int(len(list1)/2):
+                second = second + chunk
+            else:
+                second = second + chunk + " and "
+    return second
+
+
 
 #--------------------------------------#
 
@@ -457,11 +547,6 @@ async def first_command(interaction: discord.Interaction):
     view.add_item(button1)
 
     await interaction.response.send_message("Hello!",view=view)
-
-@bot.tree.command(name="say")
-@app_commands.describe(thing_to_say = "What should I say?")
-async def say(interaction: discord.Interaction, thing_to_say: str):
-    await interaction.response.send_message(f"{interaction.user.name} said: `{thing_to_say}`")
 
 @bot.command()
 async def purge(ctx, amt):
