@@ -15,9 +15,6 @@
 #Everytime a user signs up, write that user to a file of current sign-ups
 #Every 30mins, backup all lists to a file
 #Make it so when winners are drawn for the week, the bot reacts to the winning mugs and disables the buttons
-#Make it so only users who have signed up can submit images
-
-
 
 
 import discord
@@ -155,9 +152,9 @@ async def sign_up():
     c = bot.get_channel(SIGNUP_CHANNEL_ID)
     msg = await c.send("Click the button to sign up for this week's mug of the week.",view=SignUpView())
 
-
-
 #--------------------------------------#
+
+
 
 #-----Rand dm stuff-------#
 
@@ -207,16 +204,19 @@ async def send_rand_dm(interaction: discord.Interaction):
 @bot.tree.command(name="submit_mug", description="Use this command to submit mugs")
 async def sub_photos(interaction: discord.Interaction, file: discord.Attachment):
     
-    if interaction.user.id not in prev_img_sub_usr_list:
-        await interaction.response.send_message("Mug successfully submitted",ephemeral=True)
-        c = bot.get_channel(MUG_SUBMISSIONS_ID)
-        msg = await c.send(file, view=MugView())
-        prev_img_sub_usr_list.append(interaction.user.id)
-        await store_file(prev_img_sub_usr_list,f'{prev_img_sub_usr_list=}'.split('=')[0])
-        prev_img_dict.update({str(msg.id): interaction.user.id})
-        await store_file(prev_img_dict,f'{prev_img_dict=}'.split('=')[0])
+    if (interaction.user.id in users_signed_up):
+        if interaction.user.id not in prev_img_sub_usr_list:
+            await interaction.response.send_message("Mug successfully submitted",ephemeral=True)
+            c = bot.get_channel(MUG_SUBMISSIONS_ID)
+            msg = await c.send(file, view=MugView())
+            prev_img_sub_usr_list.append(interaction.user.id)
+            await store_file(prev_img_sub_usr_list,f'{prev_img_sub_usr_list=}'.split('=')[0])
+            prev_img_dict.update({str(msg.id): interaction.user.id})
+            await store_file(prev_img_dict,f'{prev_img_dict=}'.split('=')[0])
+        else:
+            await interaction.response.send_message("You have already submitted your mug for this week.",ephemeral=True)
     else:
-        await interaction.response.send_message("You have already submitted your mug for this week",ephemeral=True)
+        await interaction.response.send_message("You did not sign up this week, so you cant submit a mug.",ephemeral=True)
     
 
 class MugView(View):
@@ -296,6 +296,7 @@ async def ann_winn(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("You do not have permission to do that", ephemeral=True)
     else:
+        old_top_scores = []
         for key in prev_img_dict:
             votes = vote_tracker.get(key)
             if (votes == None):
@@ -322,20 +323,28 @@ async def ann_winn(interaction: discord.Interaction):
         #Try and get first, second and third place
         try:
             first = await calcplace(top_scores[0])
+            await calc_medal(top_scores[0], 0)
         except:
             first = "No one"
+
         try:
             second = await calcplace(top_scores[1])
+            await calc_medal(top_scores[1], 1)
         except:
             second = "No one"
+
         try:
             third = await calcplace(top_scores[2])
+            await calc_medal(top_scores[2], 2)
         except:
             third = "No one"
 
         await interaction.response.send_message(f"Drawn winners",ephemeral=True)
         c = bot.get_channel(MUG_SUBMISSIONS_ID)
         await c.send(f"First: {first}\nSecond: {second}\nThird: {third}")
+
+        for key in prev_img_dict:
+            await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(key).edit(view=None)
 
 #Split ties back up so they can be output
 async def calcplace(list1):
@@ -351,6 +360,23 @@ async def calcplace(list1):
             else:
                 second = second + chunk + " and "
     return second
+
+#Awards medals to mugs
+async def calc_medal(list2, place):
+    match place:
+        case 0:
+            medal = "🥇"
+        case 1:
+            medal = "🥈"
+        case 2:
+            medal = "🥉"
+    if len(list2) == 2:
+        #Find user who sent the message by looping through pre_img_dict
+        #Check that the list2[0] message is the same as the pre_img_dict[key]
+        for key in prev_img_dict:
+            if prev_img_dict.get(key) == list2[0]:
+                await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(key).add_reaction(medal)
+
 
 
 async def Sort(sub_li):
