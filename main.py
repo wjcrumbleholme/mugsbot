@@ -237,7 +237,20 @@ async def send_rand_dm(interaction: discord.Interaction):
             dmuser = await guild.fetch_member(users_signed_up[i])
             dmvict = await guild.fetch_member(final_rand_users_signed_up[i])
 
-            await dmuser.send(f"Hello {dmuser.nick}, for this mug of the week, you have got to get the best mug of {dmvict.nick} without them knowing.")
+
+            if dmuser.nick == None:
+                dmuser = dmuser
+            else:
+                dmuser = dmuser.nick
+
+
+            if dmvict.nick == None:
+                dmvict = dmvict
+            else:
+                dmvict = dmvict.nick
+
+
+            await dmuser.send(f"Hello {dmuser}, you have got to mug {dmvict} this week. Once you have got the best mug you can, run /submit_mug in any channel. You have untill friday evening to do this.")
 
         await interaction.followup.send("Successfully sent dms.", ephemeral=True)
 
@@ -424,7 +437,11 @@ async def calcplace(list1, points):
     if len(list1) == 2: #If only one user in position
         guild = await bot.fetch_guild(SERVER_ID)
         dmuser = await guild.fetch_member(final_rand_users_signed_up[users_signed_up.index(list1[0])])
-        second = f"<@{list1[0]}> - {list1[1]} vote(s)       [+{points} Point(s)]     |   [{dmuser.nick} +1 Pp]" 
+        if dmuser.nick == None:
+            dmuser =  dmuser
+        else:
+            dmuser = dmuser.nick
+        second = f"<@{list1[0]}> - {list1[1]} vote(s)       [+{points} Point(s)]     |   [{dmuser} +1 Pp]" 
         await add_overall_leader(list1[0], points)
         await add_overall_leader(dmuser.id, 1)
         
@@ -433,7 +450,11 @@ async def calcplace(list1, points):
             # curruser = await bot.fetch_user(list1[(i*2)-2])
             guild = await bot.fetch_guild(SERVER_ID)
             dmuser = await guild.fetch_member(final_rand_users_signed_up[users_signed_up.index(list1[(i*2)-2])])
-            chunk = f"<@{list1[(i*2)-2]}> - {list1[(i*2)-1]} vote(s)       [+{points} Point(s)]     |   [{dmuser.nick} +1 Pp]"
+            if dmuser.nick == None:
+                dmuser =  dmuser
+            else:
+                dmuser = dmuser.nick
+            chunk = f"<@{list1[(i*2)-2]}> - {list1[(i*2)-1]} vote(s)       [+{points} Point(s)]     |   [{dmuser} +1 Pp]"
             await add_overall_leader(list1[(i*2)-2], points)
             await add_overall_leader(dmuser.id, 1)
             if i == int(len(list1))/2:
@@ -527,7 +548,7 @@ async def calcoverplace(list1):
         for i in range(1, int(len(list1)/2)+1): #If multiple users are in position
             chunk = "<@"+str(list1[(i*2)-2]) +"> - "+ str(list1[(i*2)-1]) +" points(s)"
 
-            if i == int(len(list1)/2):
+            if i == int(len(list1))/2:
                 second = second + chunk
             else:
                 second = second + chunk + " and "
