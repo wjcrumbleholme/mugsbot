@@ -234,7 +234,8 @@ async def send_rand_dm(interaction: discord.Interaction):
         
         for i in range(0, len(users_signed_up)):
             guild = await bot.fetch_guild(SERVER_ID)
-            dmuser = await guild.fetch_member(users_signed_up[i])
+            dmsend = await guild.fetch_member(users_signed_up[i])
+            dmuser = dmsend
             dmvict = await guild.fetch_member(final_rand_users_signed_up[i])
 
 
@@ -250,7 +251,7 @@ async def send_rand_dm(interaction: discord.Interaction):
                 dmvict = dmvict.nick
 
 
-            await dmuser.send(f"Hello {dmuser}, you have got to mug {dmvict} this week. Once you have got the best mug you can, run /submit_mug in any channel. You have untill friday evening to do this.")
+            await dmsend.send(f"Hello {dmuser}, you have got to mug {dmvict} this week. Once you have got the best mug you can, run /submit_mug in any channel. You have untill friday evening to do this.")
 
         await interaction.followup.send("Successfully sent dms.", ephemeral=True)
 
