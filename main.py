@@ -7,6 +7,8 @@
 
 
 #TODO
+#Need to make it post the winners in ⁠mug-of-the-week along with who posted it and what place they came
+#Make bounty system, admins will have to manually reveiw photos and if there is metadata, post it with it.
 
 
 import discord
@@ -18,6 +20,7 @@ import random
 import json
 import os
 import datetime
+from PIL import Image, ExifTags
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apikeys import *
@@ -165,6 +168,27 @@ async def mug_sub_command(interaction: discord.Interaction):
             if filename[7:-5] in files_to_delete:
                 os.remove(f"./backups/{filename}")
         await interaction.response.send_message("Successfullu cleared backups", ephemeral=True)
+
+# @bot.tree.command(name="save_file", description="Test to see if metadata is retained")
+# async def save_usr_files(interaction: discord.Interaction, file: discord.Attachment):
+#     await file.save(file.filename)
+#     await interaction.response.send_message("Successfully saved file", ephemeral=True)
+#     print(file.filename)
+#     await image_date(f"{file.filename}")
+    
+    
+    
+# async def image_date(filename):
+#     image_exif = Image.open(filename)._getexif()
+#     if image_exif:
+#         # Make a map with tag names
+#         exif = { ExifTags.TAGS[k]: v for k, v in image_exif.items() if k in ExifTags.TAGS and type(v) is not bytes }
+#         print(json.dumps(exif, indent=4))
+#         # Grab the date
+#         date_obj = datetime.strptime(exif['DateTimeOriginal'], '%Y:%m:%d %H:%M:%S')
+#         print(date_obj)
+#     else:
+#         print('Unable to get date from exif for %s' % filename)
         
 
 
@@ -273,7 +297,11 @@ async def sub_photos(interaction: discord.Interaction, file: discord.Attachment)
             if interaction.user.id not in prev_img_sub_usr_list:
                 await interaction.response.send_message("Mug successfully submitted",ephemeral=True)
                 c = bot.get_channel(MUG_SUBMISSIONS_ID)
-                msg = await c.send(file, view=MugView())
+                if toggles["sign_up"] == False:
+                    currview = None
+                else:
+                    currview = MugView()
+                msg = await c.send(file, view=currview)
                 prev_img_sub_usr_list.append(interaction.user.id)
                 await store_file(prev_img_sub_usr_list,f'{prev_img_sub_usr_list=}'.split('=')[0])
                 prev_img_dict.update({str(msg.id): interaction.user.id})
@@ -378,16 +406,26 @@ async def ann_winn(interaction: discord.Interaction):
         
 
 
-        #group all the same values together, so that ties work
+        #Group people with the same score together, so that ties work
         top_scores = await Sort(old_top_scores)
         top_scores.reverse()
-        for i in range(0, len(top_scores) -2):
-            if top_scores[i+1][1] == top_scores[i][1]:
-                top_scores[i] = top_scores[i] + top_scores[i+1]
-                top_scores.pop(i+1)
-        print(f"List - {top_scores}")
+        i = len(top_scores) - 1  # Start from the last index
+        while i >= 1:
+            if int(top_scores[i][1]) == int(top_scores[i-1][1]):
+                top_scores[i-1] += top_scores[i]  # Merge the two elements
+                top_scores.pop(i)  # Remove the second element
+            i -= 1  # Move to the previous index
 
-        #Try and get first, second and third place
+        # #group all the same values together, so that ties work
+        # top_scores = await Sort(old_top_scores)
+        # top_scores.reverse()
+        # for i in range(0, len(top_scores) -2):
+        #     if top_scores[i+1][1] == top_scores[i][1]:
+        #         top_scores[i] = top_scores[i] + top_scores[i+1]
+        #         top_scores.pop(i+1)
+        # print(f"List - {top_scores}")
+
+        # Try and get first, second and third place
         try:
             first = await calcplace(top_scores[0], 3)
             await calc_medal(top_scores[0], 0)
@@ -414,7 +452,8 @@ async def ann_winn(interaction: discord.Interaction):
         # await calc_medal(top_scores[1], 1)
 
 
-        # third = "No one"
+        # third = await calcplace(top_scores[2], 1)
+        # await calc_medal(top_scores[2], 2)
 
         await interaction.followup.send(f"Drawn winners",ephemeral=True)
         c = bot.get_channel(MUG_SUBMISSIONS_ID)
@@ -430,55 +469,91 @@ async def ann_winn(interaction: discord.Interaction):
 
 
         for key in prev_img_dict:
-            await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(key).edit(view=None)
+            try:
+                await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(key).edit(view=None)
+            except:
+                print("Cant find image")
 
 #Split ties back up so they can be output
 async def calcplace(list1, points):
     second = ""
     if len(list1) == 2: #If only one user in position
-        guild = await bot.fetch_guild(SERVER_ID)
-        dmuser = await guild.fetch_member(final_rand_users_signed_up[users_signed_up.index(list1[0])])
-        if dmuser.nick == None:
-            dmuser =  dmuser
+        dmuser = ""
+        try:
+            guild = await bot.fetch_guild(SERVER_ID)
+            dmuser = await guild.fetch_member(final_rand_users_signed_up[users_signed_up.index(list1[0])])
+        except:
+            print ("Cant find user")
+            nametouse = ""
+        
+        if dmuser != "":
+                if dmuser.nick != None:
+                    nametouse = dmuser.nick
+                else:
+                    nametouse = dmuser
         else:
-            dmuser = dmuser.nick
-        second = f"<@{list1[0]}> - {list1[1]} vote(s)       [+{points} Point(s)]     |   [{dmuser} +1 Pp]" 
+            nametouse = ""
+
+        print(f"{nametouse}")
+        second = f"<@{list1[0]}> - {list1[1]} vote(s)   [+{points} Point(s)] | [{nametouse} +1 Pp]" 
         await add_overall_leader(list1[0], points)
-        await add_overall_leader(dmuser.id, 1)
+        if dmuser != "":
+            await add_overall_leader(dmuser.id, 1)
         
     else:
         for i in range(1, int(len(list1)/2)+1): #If multiple users are in position
             # curruser = await bot.fetch_user(list1[(i*2)-2])
-            guild = await bot.fetch_guild(SERVER_ID)
-            dmuser = await guild.fetch_member(final_rand_users_signed_up[users_signed_up.index(list1[(i*2)-2])])
-            if dmuser.nick == None:
-                dmuser =  dmuser
+            dmuser = ""
+            try:
+                guild = await bot.fetch_guild(SERVER_ID)
+                dmuser = await guild.fetch_member(final_rand_users_signed_up[users_signed_up.index(list1[(i*2)-2])])
+            except:
+                print ("Cant find user")
+                nametouse = ""
+
+            if dmuser != "":
+                if dmuser.nick != "":
+                    nametouse = dmuser.nick
+                else:
+                    nametouse = dmuser
             else:
-                dmuser = dmuser.nick
-            chunk = f"<@{list1[(i*2)-2]}> - {list1[(i*2)-1]} vote(s)       [+{points} Point(s)]     |   [{dmuser} +1 Pp]"
+                nametouse = ""
+
+            print(f"{dmuser}")
+            chunk = f"<@{list1[(i*2)-2]}> - {list1[(i*2)-1]} vote(s)   [+{points} Point(s)] | [{nametouse} +1 Pp]"
             await add_overall_leader(list1[(i*2)-2], points)
-            await add_overall_leader(dmuser.id, 1)
+            if dmuser != "":
+                await add_overall_leader(dmuser.id, 1)
             if i == int(len(list1))/2:
                 second = second + chunk
             else:
-                second = second + chunk + " and "
+                second = second + chunk + "   and   "
+            
     return second
 
 #Awards medals to mugs
 async def calc_medal(list2, place):
-    match place:
-        case 0:
-            medal = "🥇"
-        case 1:
-            medal = "🥈"
-        case 2:
-            medal = "🥉"
-    if len(list2) == 2:
-        #Find user who sent the message by looping through pre_img_dict
-        #Check that the list2[0] message is the same as the pre_img_dict[key]
-        for key in prev_img_dict:
-            if prev_img_dict.get(key) == list2[0]:
-                await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(key).add_reaction(medal)
+    try:
+        match place:
+            case 0:
+                medal = "🥇"
+            case 1:
+                medal = "🥈"
+            case 2:
+                medal = "🥉"
+        if len(list2) == 2:
+            #Find user who sent the message by looping through pre_img_dict
+            #Check that the list2[0] message is the same as the pre_img_dict[key]
+            for key in prev_img_dict:
+                if prev_img_dict.get(key) == list2[0]:
+                    await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(key).add_reaction(medal)
+        elif len(list2) > 2:
+            for i in range (1, int(len(list2)/2)+1):
+                for key in prev_img_dict:
+                    if prev_img_dict.get(key) == list2[(i*2)-2]:
+                        await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(key).add_reaction(medal)
+    except:
+        print("Cant find image to put medal on.")
 
 #Add points to the overall leaderboard
 async def add_overall_leader(user_id, points):
@@ -524,12 +599,21 @@ async def send_top_leader(interaction: discord.Interaction):
         tuple_sorted_leaderboard = sorted(overall_leaderboard.items(), key= lambda x:x[1], reverse=True)
         sorted_leaderboard = [list(ele) for ele in tuple_sorted_leaderboard] #Convert the tuples in the list to lists
 
+
+
         #Group people with the same score together
-        for i in range(0, len(sorted_leaderboard) -1):
-            if sorted_leaderboard[i+1][1] == sorted_leaderboard[i][1]:
-                sorted_leaderboard[i] = sorted_leaderboard[i] + sorted_leaderboard[i+1]
-                sorted_leaderboard.pop(i+1)
+        sorted_leaderboard = await Sort(sorted_leaderboard)
+        sorted_leaderboard.reverse()
+        print(len(sorted_leaderboard))
+        i = len(sorted_leaderboard) - 1  # Start from the last index
+        while i >= 1:
+            if int(sorted_leaderboard[i][1]) == int(sorted_leaderboard[i-1][1]):
+                sorted_leaderboard[i-1] += sorted_leaderboard[i]  # Merge the two elements
+                sorted_leaderboard.pop(i)  # Remove the second element
+            i -= 1  # Move to the previous index
+
         print(sorted_leaderboard)
+
 
         position = 0
         if str(interaction.user.id) in overall_leaderboard:
@@ -538,22 +622,33 @@ async def send_top_leader(interaction: discord.Interaction):
                     position = sorted_leaderboard.index(place) + 1
         else: 
             pass
-
-        await interaction.followup.send(f"First: {await calcoverplace(sorted_leaderboard[0])} \nSecond: {await calcoverplace(sorted_leaderboard[1])} \nThird: {await calcoverplace(sorted_leaderboard[2])}\n Your place is {position} with {overall_leaderboard.get(str(interaction.user.id))} point(s)", ephemeral=True)
-
+        
+        if len(sorted_leaderboard) >= 3:
+            await interaction.followup.send(f"First: {await calcoverplace(sorted_leaderboard[0])} \nSecond: {await calcoverplace(sorted_leaderboard[1])} \nThird: {await calcoverplace(sorted_leaderboard[2])}\n Your place is {position} with {overall_leaderboard.get(str(interaction.user.id))} point(s)", ephemeral=True)
+        elif len(sorted_leaderboard) == 2:
+            await interaction.followup.send(f"First: {await calcoverplace(sorted_leaderboard[0])} \nSecond: {await calcoverplace(sorted_leaderboard[1])} \nThird: No one\n Your place is {position} with {overall_leaderboard.get(str(interaction.user.id))} point(s)", ephemeral=True)
+        elif len(sorted_leaderboard) == 1:
+            await interaction.followup.send(f"First: {await calcoverplace(sorted_leaderboard[0])} \nSecond: No one \nThird: No one\n Your place is {position} with {overall_leaderboard.get(str(interaction.user.id))} point(s)", ephemeral=True)
+        else:
+            await interaction.followup.send(f"First: No one \nSecond: No one \nThird: No one\n Your place is {position} with {overall_leaderboard.get(str(interaction.user.id))} point(s)", ephemeral=True)
+            
 async def calcoverplace(list1):
     second = ""
-    if len(list1) == 2: #If only one user in position
-        second = f"<@{list1[0]}> - {list1[1]} point(s)"        
-    else:
-        for i in range(1, int(len(list1)/2)+1): #If multiple users are in position
-            chunk = "<@"+str(list1[(i*2)-2]) +"> - "+ str(list1[(i*2)-1]) +" points(s)"
+    try:
+        if len(list1) == 2: #If only one user in position
+            second = f"<@{list1[0]}> - {list1[1]} point(s)"        
+        else:
+            for i in range(1, int(len(list1)/2)+1): #If multiple users are in position
+                chunk = "<@"+str(list1[(i*2)-2]) +"> - "+ str(list1[(i*2)-1]) +" points(s)"
 
-            if i == int(len(list1))/2:
-                second = second + chunk
-            else:
-                second = second + chunk + " and "
-    return second
+                if i == int(len(list1))/2:
+                    second = second + chunk
+                else:
+                    second = second + chunk + " and "
+        return second
+    except:
+        return second
+        
 
 
 
