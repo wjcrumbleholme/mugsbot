@@ -30,7 +30,7 @@ SERVER_ID = 1157045575250878567
 CHANNEL_ID = 1157045577545167002
 SIGNUP_CHANNEL_ID = 1157261080503001118
 MUG_SUBMISSIONS_ID = 1157292030137999460
-
+MOTW_ROLE = 1160688315893301389
 
 
 users_signed_up = [] #Stores the signed up users
@@ -214,6 +214,10 @@ async def on_sign_up(interaction):
         users_signed_up.append(user)
         await interaction.response.send_message("You have successfully signed up for mug of the week for this week.",ephemeral=True)
         await store_file(users_signed_up,f'{users_signed_up=}'.split('=')[0])
+        role = bot.get_guild(SERVER_ID).get_role(MOTW_ROLE)
+        roleuser = await bot.get_guild(SERVER_ID).fetch_member(user)
+        await roleuser.add_roles(role)
+        
 
 async def on_sign_up_cancel(interaction):
     user = interaction.user.id
@@ -221,6 +225,9 @@ async def on_sign_up_cancel(interaction):
         users_signed_up.remove(user)
         await interaction.response.send_message("You have been successfully removed from mug of the week for this week.",ephemeral=True)
         await store_file(users_signed_up,f'{users_signed_up=}'.split('=')[0])
+        role = bot.get_guild(SERVER_ID).get_role(MOTW_ROLE)
+        roleuser = await bot.get_guild(SERVER_ID).fetch_member(user)
+        await roleuser.remove_roles(role)
     else:
         await interaction.response.send_message("You haven't signed up so can't be removed.",ephemeral=True)
 
