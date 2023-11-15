@@ -20,7 +20,6 @@ import random
 import json
 import os
 import datetime
-from PIL import Image, ExifTags
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apikeys import *
@@ -422,31 +421,23 @@ async def ann_winn(interaction: discord.Interaction):
                 top_scores[i-1] += top_scores[i]  # Merge the two elements
                 top_scores.pop(i)  # Remove the second element
             i -= 1  # Move to the previous index
-
-        # #group all the same values together, so that ties work
-        # top_scores = await Sort(old_top_scores)
-        # top_scores.reverse()
-        # for i in range(0, len(top_scores) -2):
-        #     if top_scores[i+1][1] == top_scores[i][1]:
-        #         top_scores[i] = top_scores[i] + top_scores[i+1]
-        #         top_scores.pop(i+1)
-        # print(f"List - {top_scores}")
-
+            
+            
         # Try and get first, second and third place
         try:
-            first = await calcplace(top_scores[0], 3)
+            first = await calcplace(top_scores[0], 4)
             await calc_medal(top_scores[0], 0)
         except:
             first = "No one"
 
         try:
-            second = await calcplace(top_scores[1], 2)
+            second = await calcplace(top_scores[1], 3)
             await calc_medal(top_scores[1], 1)
         except:
             second = "No one"
 
         try:
-            third = await calcplace(top_scores[2], 1)
+            third = await calcplace(top_scores[2], 2)
             await calc_medal(top_scores[2], 2)
         except:
             third = "No one"
@@ -605,8 +596,6 @@ async def send_top_leader(interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         tuple_sorted_leaderboard = sorted(overall_leaderboard.items(), key= lambda x:x[1], reverse=True)
         sorted_leaderboard = [list(ele) for ele in tuple_sorted_leaderboard] #Convert the tuples in the list to lists
-
-
 
         #Group people with the same score together
         sorted_leaderboard = await Sort(sorted_leaderboard)
