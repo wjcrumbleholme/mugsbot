@@ -9,6 +9,7 @@
 #TODO
 #Need to make it post the winners in ⁠mug-of-the-week along with who posted it and what place they came
 #Make bounty system, admins will have to manually reveiw photos and if there is metadata, post it with it.
+#Pitty points not working
 
 
 import discord
@@ -21,7 +22,6 @@ import json
 import os
 import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
 from apikeys import *
 
 
@@ -30,6 +30,7 @@ CHANNEL_ID = 1157045577545167002
 SIGNUP_CHANNEL_ID = 1157261080503001118
 MUG_SUBMISSIONS_ID = 1157292030137999460
 MOTW_ROLE = 1160688315893301389
+ADMIN_CHANNEL = 1174416767192412220
 
 
 users_signed_up = [] #Stores the signed up users
@@ -46,6 +47,7 @@ toggles = {"sign_up": False,
            "sub_mug": False,
            "voting": False
            }
+
 
 
 bot = commands.Bot(command_prefix= '-', intents=discord.Intents.all())
@@ -72,15 +74,216 @@ async def on_ready():
 
     bot.add_view(MugView())
     bot.add_view(SignUpView())
-
-    # scheduler = AsyncIOScheduler()
-    # scheduler.configure(timezone='gmt')
-    # scheduler.add_job(test,CronTrigger(minute='0'))
-    # scheduler.start()
     
+
+    scheduler = AsyncIOScheduler()
+    # scheduler.add_job(test, 'cron', day_of_week = "wed" , hour = 18, second = "*/5")
+
+    #Send sign up message
+    scheduler.add_job(sched_sign_up_send, 'cron', day_of_week = "mon", hour = 0)
+    #Close sign up and send dms allow submissions
+    scheduler.add_job(sched_sign_send_dms_sub, 'cron', day_of_week = "mon", hour = 12)
+    #Close mug submission and open voting 
+    scheduler.add_job(sched_sub_voting, 'cron', day_of_week = "sat", hour = 0)
+    #Close voting and update leaderboard
+    scheduler.add_job(sched_voting_leader, 'cron', day_of_week = "sun", hour = 12)
+    #Clear values and restart
+    scheduler.add_job(sched_clear_restart, 'cron', day_of_week = "sun", hour = 18)
+
+    scheduler.configure(timezone='gmt')
+    scheduler.start()
+    
+    # await sched_sign_send_dms_sub()
 
 #-------------------------------------#
 
+
+
+#----Scheduler processes----#
+
+async def sched_sign_up_toggle():
+    if toggles.get("sign_up") == False:
+        toggles["sign_up"] = True
+        c = bot.get_channel(SIGNUP_CHANNEL_ID)
+        msg = await c.send("Click the button to sign up for this week's mug of the week.",view=SignUpView())
+        toggles["sign_up_msg_id"] = msg.id
+        await store_file(toggles,f'{toggles=}'.split('=')[0])
+        log = bot.get_channel(ADMIN_CHANNEL)
+        await log.send("Sent sign up message.")
+    else:
+        toggles["sign_up"] = False
+        await bot.get_channel(SIGNUP_CHANNEL_ID).get_partial_message(toggles.get("sign_up_msg_id")).delete()
+        await store_file(toggles,f'{toggles=}'.split('=')[0])
+        log = bot.get_channel(ADMIN_CHANNEL)
+        await log.send("Unsent sign up message.")
+
+
+async def sched_sign_up_send():
+    await sched_sign_up_toggle()
+
+
+async def sched_mug_sub_toggle():
+    if toggles.get("sub_mug") == False:
+        toggles["sub_mug"] = True
+        await store_file(toggles,f'{toggles=}'.split('=')[0])
+        log = bot.get_channel(ADMIN_CHANNEL)
+        await log.send("Enabled mugs to be able to be sent")
+    else:
+        toggles["sub_mug"] = False
+        await store_file(toggles,f'{toggles=}'.split('=')[0])
+        log = bot.get_channel(ADMIN_CHANNEL)
+        await log.send("Disabled mugs to be able to be sent")
+
+async def sched_sign_send_dms_sub():
+    await sched_sign_up_toggle()
+
+    #send rand dms logic
+    final_rand_users_signed_up = []
+    rand_users_signed_up = users_signed_up.copy()
+    random.shuffle(rand_users_signed_up)
+    for i in range(0, len(users_signed_up)):
+        while users_signed_up[i] == rand_users_signed_up[0]:
+            if(i == len(users_signed_up)-1):
+                temp = final_rand_users_signed_up[i-1]
+                final_rand_users_signed_up[i-1] = rand_users_signed_up[0]
+                rand_users_signed_up[0] = temp
+                await store_file(final_rand_users_signed_up,f'{final_rand_users_signed_up=}'.split('=')[0])
+            else:
+                random.shuffle(rand_users_signed_up)
+        else:
+            final_rand_users_signed_up.append(rand_users_signed_up[0])
+            await store_file(final_rand_users_signed_up,f'{final_rand_users_signed_up=}'.split('=')[0])
+            rand_users_signed_up.remove(rand_users_signed_up[0])
+    
+    for i in range(0, len(users_signed_up)):
+        guild = await bot.fetch_guild(SERVER_ID)
+        dmsend = await guild.fetch_member(users_signed_up[i])
+        dmuser = dmsend
+        dmvict = await guild.fetch_member(final_rand_users_signed_up[i])
+
+
+        if dmuser.nick == None:
+            dmuser = dmuser
+        else:
+            dmuser = dmuser.nick
+
+
+        if dmvict.nick == None:
+            dmvict = dmvict
+        else:
+            dmvict = dmvict.nick
+
+
+        await dmsend.send(f"Hello {dmuser}, you have got to mug {dmvict} this week. Once you have got the best mug you can, run /submit_mug in any channel. You have untill friday evening to do this.")
+
+    log = bot.get_channel(ADMIN_CHANNEL)
+    await log.send("Successfully sent dms.")
+
+    #toggle mug submission
+    sched_mug_sub_toggle()
+
+async def sched_vote_toggle():
+    if toggles.get("voting") == False:
+        toggles["voting"] = True
+        log = bot.get_channel(ADMIN_CHANNEL)
+        await log.send("Enabled mugs to be able to be voted on")
+        for key in prev_img_dict:
+            await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(int(key)).edit(view=MugView())
+        await store_file(toggles,f'{toggles=}'.split('=')[0])
+    else:
+        log = bot.get_channel(ADMIN_CHANNEL)
+        await log.send("Disabled mugs to be able to be voted on")
+        for key in prev_img_dict:
+            await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(int(key)).edit(view=None)
+        await store_file(toggles,f'{toggles=}'.split('=')[0])
+
+async def sched_sub_voting():
+    sched_mug_sub_toggle()
+    sched_vote_toggle()
+
+async def sched_voting_leader():
+    sched_vote_toggle()
+
+    #Leaderboard stuff
+    old_top_scores = []
+    for key in prev_img_dict:
+        votes = vote_tracker.get(key)
+        if (votes == None):
+            vote_tracker[key] = []
+            votes = vote_tracker.get(key)
+
+        votes = len(votes)
+        #add all scores to a list
+        old_top_scores.append([prev_img_dict[key], votes])
+        await store_file(old_top_scores,f'{old_top_scores=}'.split('=')[0])
+        
+    
+
+
+    #Group people with the same score together, so that ties work
+    top_scores = await Sort(old_top_scores)
+    top_scores.reverse()
+    i = len(top_scores) - 1  # Start from the last index
+    while i >= 1:
+        if int(top_scores[i][1]) == int(top_scores[i-1][1]):
+            top_scores[i-1] += top_scores[i]  # Merge the two elements
+            top_scores.pop(i)  # Remove the second element
+        i -= 1  # Move to the previous index
+        
+        
+    # Try and get first, second and third place
+    try:
+        first = await calcplace(top_scores[0], 4)
+        await calc_medal(top_scores[0], 0)
+    except:
+        first = "No one"
+
+    try:
+        second = await calcplace(top_scores[1], 3)
+        await calc_medal(top_scores[1], 1)
+    except:
+        second = "No one"
+
+    try:
+        third = await calcplace(top_scores[2], 2)
+        await calc_medal(top_scores[2], 2)
+    except:
+        third = "No one"
+
+    # first = await calcplace(top_scores[0], 3)
+    # await calc_medal(top_scores[0], 0)
+
+
+    # second = await calcplace(top_scores[1], 2)
+    # await calc_medal(top_scores[1], 1)
+
+
+    # third = await calcplace(top_scores[2], 1)
+    # await calc_medal(top_scores[2], 2)
+
+    log = bot.get_channel(ADMIN_CHANNEL)
+    await bot.send(f"Drawn winners")
+    c = bot.get_channel(MUG_SUBMISSIONS_ID)
+    curr_leaderboard = f"First: {first}\nSecond: {second}\nThird: {third}"
+    await c.send(curr_leaderboard)
+    await store_file(curr_leaderboard,f'{curr_leaderboard=}'.split('=')[0])
+
+    with open(f"./leaderboards/{datetime.date.today()}curr.json", "w") as f:
+        json.dump(curr_leaderboard, f, indent= 2)
+
+    with open(f"./leaderboards/{datetime.date.today()}overall.json", "w") as f:
+        json.dump(overall_leaderboard, f, indent= 2)
+
+
+    for key in prev_img_dict:
+        try:
+            await bot.get_channel(MUG_SUBMISSIONS_ID).get_partial_message(key).edit(view=None)
+        except:
+            print("Cant find image")
+
+
+async def sched_clear_restart():
+    pass
 
 #----File Storing-----#
 
@@ -162,7 +365,7 @@ async def mug_sub_command(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("You do not have permission to do that", ephemeral=True)
     else:
-        files_to_delete = ["users_signed_up", "final_rand_users_signed_up", "prev_img_sub_usr_list", "prev_img_dict", "usr_votes","old_top_scores","vote_tracker"]
+        files_to_delete = ["final_rand_users_signed_up", "prev_img_sub_usr_list", "prev_img_dict", "usr_votes","old_top_scores","vote_tracker"]
         for filename in os.listdir("./backups"):
             if filename[7:-5] in files_to_delete:
                 os.remove(f"./backups/{filename}")
@@ -507,15 +710,15 @@ async def calcplace(list1, points):
                 dmuser = await guild.fetch_member(final_rand_users_signed_up[users_signed_up.index(list1[(i*2)-2])])
             except:
                 print ("Cant find user")
-                nametouse = ""
 
-            if dmuser != "":
-                if dmuser.nick != "":
-                    nametouse = dmuser.nick
-                else:
-                    nametouse = dmuser
-            else:
+            if dmuser == "":
                 nametouse = ""
+            else:
+                if dmuser.nick == "":
+                    nametouse = dmuser
+                else:
+                    nametouse = dmuser.nick
+                
 
             print(f"{dmuser}")
             chunk = f"<@{list1[(i*2)-2]}> - {list1[(i*2)-1]} vote(s)   [+{points} Point(s)] | [{nametouse} +1 Pp]"
